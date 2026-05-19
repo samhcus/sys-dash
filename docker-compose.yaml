@@ -8,6 +8,14 @@ services:
     restart: unless-stopped
     networks:
       - coolify
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sys-dash.entryPoints=http
+      - traefik.http.routers.sys-dash.rule=Host(`srv1575140.tail4dc648.ts.net`)
+      - traefik.http.routers.sys-dash.service=sys-dash
+      - traefik.http.services.sys-dash.loadbalancer.server.port=3000
+      - traefik.http.middlewares.gzip.compress=true
+      - traefik.http.routers.sys-dash.middlewares=gzip
 
 networks:
   coolify:
