@@ -17,9 +17,9 @@ const sectionDefinitions = [
       {
         id: "overseer",
         name: "Overseer",
-        href: "https://overseer.wokspec.org",
-        urlLabel: "overseer.wokspec.org",
-        pingTarget: "https://overseer.wokspec.org/health",
+        href: "http://100.73.12.59:8765",
+        urlLabel: "100.73.12.59:8765",
+        pingTarget: "http://100.73.12.59:8765/health",
         tag: "vault QA + brain chat",
       },
       {
