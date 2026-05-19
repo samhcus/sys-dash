@@ -1,5 +1,4 @@
 const express = require("express");
-const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
@@ -213,15 +212,6 @@ const sectionDefinitions = [
         containerMatchers: [/gateway-vrnm/i],
         agentInfo: { provider: "Groq", model: "llama-3.3-70b-versatile", stateVolume: "vrnm6yui1nhan1ci0pbwhtwv_nqitapa-data" },
       },
-      {
-        id: "claw3d",
-        name: "Claw3D",
-        href: "http://claw3d.2.24.29.238.sslip.io",
-        urlLabel: "claw3d.2.24.29.238.sslip.io",
-        pingTarget: "http://claw3d.2.24.29.238.sslip.io",
-        tag: "3D agent visualization",
-        containerMatchers: [/w9kgvd592vmelmphnqru3unv/i],
-      },
     ],
   },
 ];
@@ -229,7 +219,7 @@ const sectionDefinitions = [
 const dockerGroupMatchers = {
   personal: [/founder-dashboard/i, /paperclip/i, /^coolify$/i, /^coolify-/i],
   orinadus: [/orinadus-waitlist/i],
-  madhouse: [/bot-mof4/i, /dashboard-vrnm/i, /gateway-vrnm/i, /dashboard-gxjd/i, /gateway-gxjd/i, /hank-duck-gateway/i, /w9kgvd592vmelmphnqru3unv/i],
+  madhouse: [/bot-mof4/i, /dashboard-vrnm/i, /gateway-vrnm/i, /dashboard-gxjd/i, /gateway-gxjd/i, /hank-duck-gateway/i],
 };
 
 const EMBED_DEFS = [
@@ -239,13 +229,6 @@ const EMBED_DEFS = [
     src: "http://100.102.114.9:8765",
     height: 640,
     tag: "vault QA + brain chat",
-  },
-  {
-    name: "Claw3D",
-    src: "/claw3d/office",
-    height: 640,
-    tag: "3D agent office",
-    attribution: { label: "iamlukethedev/Claw3D", href: "https://github.com/iamlukethedev/Claw3D" },
   },
   {
     id: "hank-dashboard",
@@ -983,46 +966,6 @@ setInterval(() => {
 setInterval(() => {
   refreshAgentStates();
 }, 10000).unref();
-
-// -- Claw3D internal proxy --
-// Routes all /claw3d/* requests to the claw3d container on the Docker-internal network.
-// Injects the studio_access auth cookie so the iframe works without any manual browser setup.
-// basePath: "/claw3d" is patched into Claw3D's next.config.ts at build time, so Next.js
-// serves the app under /claw3d and prefixes all /_next/ static asset paths accordingly.
-const CLAW3D_INTERNAL = "http://claw3d:3000";
-const CLAW3D_TOKEN = process.env.STUDIO_ACCESS_TOKEN || "";
-
-app.use("/claw3d", (req, res) => {
-  const upstreamPath = "/claw3d" + (req.url || "/");
-  const parsed = new URL(upstreamPath, CLAW3D_INTERNAL);
-  const upstreamHeaders = { ...req.headers, host: parsed.host };
-  const existingCookie = req.headers["cookie"] || "";
-  upstreamHeaders["cookie"] = CLAW3D_TOKEN
-    ? `studio_access=${CLAW3D_TOKEN}${existingCookie ? `; ${existingCookie}` : ""}`
-    : existingCookie;
-
-  const options = {
-    hostname: parsed.hostname,
-    port: Number(parsed.port) || 80,
-    path: parsed.pathname + parsed.search,
-    method: req.method,
-    headers: upstreamHeaders,
-  };
-
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res, { end: true });
-  });
-
-  proxyReq.on("error", (err) => {
-    if (!res.headersSent) {
-      console.error("[claw3d proxy]", err.message);
-      res.status(502).json({ error: "claw3d unavailable", detail: err.message });
-    }
-  });
-
-  req.pipe(proxyReq, { end: true });
-});
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`ops listening on ${port}`);
