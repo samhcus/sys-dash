@@ -1,0 +1,16 @@
+{
+  "name": "sys-dash",
+  "version": "0.1.0",
+  "description": "System operations dashboard. VPS metrics, containers, services, agent status.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>sys</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000;
+  --panel: #090909;
+  --border: rgba(255,255,255,0.07);
+  --text: #d4d4d4;
+  --muted: #555;
+  --dim: #333;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --down: #ef4444;
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+#ts { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#conn { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+#conn-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+#conn-dot.ok { background: var(--ok); }
+#conn-dot.err { background: var(--down); }
+
+main { padding: 14px 18px; }
+
+section { margin-bottom: 24px; }
+.sh {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.sh em { font-style: normal; font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--dim); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.cr { display: flex; align-items: center; gap: 7px; }
+.cr + .cr { margin-top: 5px; }
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--dim); flex-shrink: 0;
+  transition: background 0.3s;
+}
+.dot.ok  { background: var(--ok);   box-shadow: 0 0 5px rgba(34,197,94,.35); }
+.dot.warn{ background: var(--warn); box-shadow: 0 0 5px rgba(245,158,11,.35); }
+.dot.down{ background: var(--down); box-shadow: 0 0 5px rgba(239,68,68,.35); }
+
+.cn { flex: 1; font-weight: 500; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cs { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cb { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.05); color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+.sp svg { display: block; }
+
+.sys-g { display: flex; gap: 18px; flex-wrap: wrap; }
+.si { display: flex; flex-direction: column; gap: 2px; }
+.sl { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.sv { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 460px) {
+  main { padding: 10px 12px; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 5px; }
+  .cn { font-size: 11px; }
+  .sv { font-size: 13px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div id="conn"><div id="conn-dot"></div><span id="conn-label">connecting</span></div>
+  <div id="ts">—</div>
+</header>
+<main>
+  <section id="sec-containers"></section>
+  <section id="sec-tailscale"></section>
+  <section id="sec-system"></section>
+</main>
+<script>
+'use strict';
+const H = {};   // latency history: key → [ms, ...]
+const MAX_H = 40;
+// DOM refs for in-place updates (avoids full re-render flash)
+const CARDS = {};  // key → { el, dotEl, badgeEl, sparkEl, subEl }
+
+function hist(key, ms) {
+  if (!H[key]) H[key] = [];
+  H[key].push(ms);
+  if (H[key].length > MAX_H) H[key].shift();
+}
+
+function spark(key, color) {
+  const v = H[key] || [];
+  if (v.length < 2) return '<svg width="44" height="12"></svg>';
+  const w = 44, h = 12;
+  const mn = Math.min(...v), mx = Math.max(...v), rng = mx - mn || 1;
+  const pts = v.map((n, i) => `${((i/(v.length-1))*w).toFixed(1)},${(h-2-((n-mn)/rng)*(h-4)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function scol(cls) {
+  return cls==='ok' ? 'var(--ok)' : cls==='warn' ? 'var(--warn)' : 'var(--down)';
+}
+
+function fmtUp(s) {
+  if (!s) return '—';
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+  return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s%3600)/60)}m`;
+}
+
+// Strip Coolify UUID+timestamp suffix from container names
+function cleanName(n) {
+  return n.replace(/-[a-z0-9]{20,}-\d{9,}$/, '')
+          .replace(/-[a-z0-9]{20,}$/, '');
+}
+
+// Returns 'ok', 'warn', or 'down' from docker status string
+function cstatus(s) {
+  if (!s) return 'down';
+  const l = s.toLowerCase();
+  if (l.startsWith('up')) return 'ok';
+  if (l.includes('exited') || l.includes('dead')) return 'down';
+  return 'warn';
+}
+
+// True if the name looks like a bare Coolify deploy UUID (no meaningful prefix)
+function isDeployContainer(name) {
+  return /^[a-z0-9]{20,}$/.test(name);
+}
+
+// ── in-place card update ───────────────────────────────────────────────────
+function setCard(key, dotCls, badge, sub, sparkKey) {
+  const r = CARDS[key];
+  if (!r) return;
+  r.dotEl.className = `dot ${dotCls}`;
+  if (r.badgeEl) r.badgeEl.textContent = badge;
+  if (r.subEl)   r.subEl.textContent = sub;
+  if (r.sparkEl) r.sparkEl.innerHTML = spark(sparkKey || key, scol(dotCls));
+}
+
+function mkCard(key, name, dotCls, badge, sub) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.dataset.key = key;
+  div.innerHTML = `
+<div class="cr">
+  <div class="dot ${dotCls}" data-ref="dot"></div>
+  <div class="cn" title="${name}">${name}</div>
+  <div class="cb" data-ref="badge">${badge}</div>
+</div>
+<div class="cr">
+  <div class="cs" data-ref="sub" style="flex:1">${sub}</div>
+  <div class="sp" data-ref="spark">${spark(key, scol(dotCls))}</div>
+</div>`;
+  CARDS[key] = {
+    el: div,
+    dotEl: div.querySelector('[data-ref="dot"]'),
+    badgeEl: div.querySelector('[data-ref="badge"]'),
+    subEl: div.querySelector('[data-ref="sub"]'),
+    sparkEl: div.querySelector('[data-ref="spark"]'),
+  };
+  return div;
+}
+
+function mkDevCard(key, hostname, dotCls, os, addr, when) {
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.dataset.key = key;
+  div.innerHTML = `
+<div class="cr">
+  <div class="dot ${dotCls}" data-ref="dot"></div>
+  <div class="cn">${hostname}</div>
+  <div class="cb">${os||'—'}</div>
+</div>
+<div class="cr">
+  <div class="cs" data-ref="sub" style="flex:1">${addr}</div>
+  <div class="cs" data-ref="when" style="flex-shrink:0">${when}</div>
+</div>`;
+  CARDS[key] = {
+    el: div,
+    dotEl: div.querySelector('[data-ref="dot"]'),
+    subEl: div.querySelector('[data-ref="sub"]'),
+    whenEl: div.querySelector('[data-ref="when"]'),
+  };
+  return div;
+}
+
+// ── sections ───────────────────────────────────────────────────────────────
+let secContainersBuilt = false;
+let secTailscaleBuilt = false;
+
+function renderContainers(containers) {
+  const sec = document.getElementById('sec-containers');
+  const running = containers.filter(c => cstatus(c.status) === 'ok').length;
+
+  // Build or update section title
+  let title = sec.querySelector('.sh');
+  if (!title) {
+    title = document.createElement('div');
+    title.className = 'sh';
+    sec.insertBefore(title, sec.firstChild);
+  }
+  title.innerHTML = `compute <em>${running}/${containers.length} up</em>`;
+
+  let grid = sec.querySelector('.grid');
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.className = 'grid';
+    sec.appendChild(grid);
+  }
+
+  const seen = new Set();
+  for (const c of containers) {
+    if (isDeployContainer(c.name)) continue;
+    const key = `ctr-${c.name}`;
+    seen.add(key);
+    const st = cstatus(c.status);
+    hist(key, st === 'ok' ? 5 : 9999);
+    const label = cleanName(c.name);
+    const badge = c.status.replace(/\(.*?\)/,'').trim().split(' ').slice(0,2).join(' ');
+    const img = (c.image||'').split(':')[0].split('/').pop();
+
+    if (CARDS[key]) {
+      setCard(key, st, badge, img);
+    } else {
+      grid.appendChild(mkCard(key, label, st, badge, img));
+    }
+  }
+
+  // Remove gone containers
+  for (const key of Object.keys(CARDS)) {
+    if (key.startsWith('ctr-') && !seen.has(key)) {
+      CARDS[key].el.remove();
+      delete CARDS[key];
+    }
+  }
+}
+
+function renderTailscale(ts) {
+  const sec = document.getElementById('sec-tailscale');
+  if (ts.error) {
+    sec.innerHTML = `<div class="sh">mesh <em style="color:var(--down)">unreachable</em></div>`;
+    secTailscaleBuilt = false;
+    return;
+  }
+  const devices = ts.devices || [];
+  const online = devices.filter(d => d.online).length;
+
+  let title = sec.querySelector('.sh');
+  if (!title) {
+    title = document.createElement('div');
+    title.className = 'sh';
+    sec.insertBefore(title, sec.firstChild);
+  }
+  title.innerHTML = `mesh <em>${online}/${devices.length} online</em>`;
+
+  let grid = sec.querySelector('.grid');
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.className = 'grid';
+    sec.appendChild(grid);
+  }
+
+  const seen = new Set();
+  for (const d of devices) {
+    const key = `ts-${d.hostname}-${d.os}`;
+    seen.add(key);
+    const dot = d.online ? 'ok' : 'down';
+    const addr = (d.addresses||[])[0] || '—';
+    const when = d.online ? 'online' : (d.lastSeen ? new Date(d.lastSeen).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '—');
+
+    if (CARDS[key]) {
+      CARDS[key].dotEl.className = `dot ${dot}`;
+      if (CARDS[key].whenEl) CARDS[key].whenEl.textContent = when;
+    } else {
+      grid.appendChild(mkDevCard(key, d.hostname, dot, d.os, addr, when));
+    }
+  }
+
+  for (const key of Object.keys(CARDS)) {
+    if (key.startsWith('ts-') && !seen.has(key)) {
+      CARDS[key].el.remove();
+      delete CARDS[key];
+    }
+  }
+}
+
+function renderSystem(runtime) {
+  const sec = document.getElementById('sec-system');
+  if (!runtime || runtime.error) return;
+  const load = runtime.loadAverage || [0,0,0];
+  sec.innerHTML = `
+<div class="sh">system <em>${runtime.host||'vps'}</em></div>
+<div class="card" style="max-width:320px">
+  <div class="sys-g">
+    <div class="si"><div class="sl">load 1m</div><div class="sv">${load[0]}</div></div>
+    <div class="si"><div class="sl">load 5m</div><div class="sv">${load[1]}</div></div>
+    <div class="si"><div class="sl">load 15m</div><div class="sv">${load[2]}</div></div>
+    <div class="si"><div class="sl">uptime</div><div class="sv">${fmtUp(runtime.uptimeSeconds)}</div></div>
+  </div>
+</div>`;
+}
+
+// ── polling ────────────────────────────────────────────────────────────────
+let busy = false;
+const connDot = document.getElementById('conn-dot');
+const connLabel = document.getElementById('conn-label');
+
+async function poll() {
+  if (busy) return;
+  busy = true;
+  try {
+    const r = await fetch('/status', { signal: AbortSignal.timeout(9000) });
+    if (!r.ok) throw new Error(`http ${r.status}`);
+    const d = await r.json();
+
+    renderContainers(d.runtime?.containers || []);
+    renderTailscale(d.tailscale || { error: 'no data' });
+    renderSystem(d.runtime);
+
+    connDot.className = 'ok';
+    connLabel.textContent = new Date().toLocaleTimeString();
+    document.getElementById('ts').textContent = new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  } catch (e) {
+    connDot.className = 'err';
+    connLabel.textContent = 'offline';
+  } finally {
+    busy = false;
+  }
+}
+
+poll();
+setInterval(poll, 7000);
+</script>
+</body>
+</html>

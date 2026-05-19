@@ -1,0 +1,32 @@
+services:
+  sys-dash:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - STUDIO_ACCESS_TOKEN=${STUDIO_ACCESS_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    networks:
+      - coolify
+
+  # Claw3D — 3D agent visualization
+  # Source: https://github.com/iamlukethedev/Claw3D (credit: Luke / iamlukethedev)
+  claw3d:
+    build:
+      context: ./claw3d
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_GATEWAY_URL=ws://127.0.0.1:18789
+      - STUDIO_ACCESS_TOKEN=${STUDIO_ACCESS_TOKEN:-}
+      - TRUSTED_PROXY=1
+    restart: unless-stopped
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    external: true
